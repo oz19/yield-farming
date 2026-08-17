@@ -138,4 +138,19 @@ contract YieldFarmingPool is Ownable, ReentrancyGuard {
 
         emit Withdrawn(poolId, msg.sender, amount);
     }
+
+    function claimRewards(bytes32 poolId) external nonReentrance {
+        _updatePool(poolId);
+
+        uint256 pending = _calculatePendingRewards(poolId, msg.sender);
+        require(pending > 0, "No rewards to claim");
+
+        UserInfo user = userInfo[poolId][msg.sender];
+        user.rewardDebt = user.amount * pools[poolId].rewardPerTokenStored / 1e18;
+        user.lastClaimTime = block.timestamp;
+
+        _safeRewardTransfer(msg.sender, pending);
+
+        emit RewardClaimed(poolId, msg.sender, pending);
+    }
 }
