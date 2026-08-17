@@ -16,7 +16,100 @@ import "lib/openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 contract YieldFarmingPool is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
-    constructor() Ownable(msg.sender) {
+    // Structure to store pool information
+    struct Pool {
+        address token;           // Pool token
+        uint256 totalStaked;     // Total staked tokens
+        uint256 rewardRate;      // Reward rate per second
+        uint256 lastUpdateTime;  // Last time it was updated
+        uint256 rewardPerTokenStored; // Accumulated reward per token
+        bool isActive;           // Whether the pool is active
+    }
 
+    // Structure to store user information
+    struct UserInfo {
+        uint256 amount;          // Staked amount
+        uint256 rewardDebt;      // Reward debt
+        uint256 lastClaimTime;   // Last time rewards were claimed
+    }
+
+    // Reward token
+    IERC20 public immutable rewardToken;
+    
+    // Mapping of pools by their unique identifier
+    mapping(bytes32 => Pool) public pools;
+    
+    // Mapping of user information by pool and address
+    mapping(bytes32 => mapping(address => UserInfo)) public userInfo;
+    
+    // List of all active pools
+    bytes32[] public activePools;
+    
+    // Events
+    event PoolCreated(bytes32 indexed poolId, address indexed token, uint256 rewardRate);
+    event Staked(bytes32 indexed poolId, address indexed user, uint256 amount);
+    event Withdrawn(bytes32 indexed poolId, address indexed user, uint256 amount);
+    event RewardClaimed(bytes32 indexed poolId, address indexed user, uint256 amount);
+    event PoolUpdated(bytes32 indexed poolId, uint256 newRewardRate);
+
+    constructor(address _rewardToken) Ownable(msg.sender) {
+        require(_rewardToken != address(0), "Invalid reward token");
+        rewardToken = _rewardToken;
+    }
+
+    function createPool(
+        address token,
+        uint256 rewardRate
+    ) external onlyOwner returns(bytes32 poolId) {
+        require(_rewardToken != address(0), "Invalid reward token");
+        require(_rewardRate > 0, "Reward Rate must be positive");
+
+        poolId = keccak256(abi.encodePacked(
+            token,
+            rewardRate,
+            block.timestamp,
+            block.chainid
+        ));
+
+        require(pools[poolId].token == address(0), "Pool already exists");
+
+        pools[poolId] = Pool({
+            token: token,
+            totalStaked: 0,
+            rewardRate: rewardRate,
+            lastUpdateTime: block.timestamp,
+            rewardPerTokenStored: 0,
+            isActive: true
+        });
+
+        activePools.push(poolId);
+
+        emit PoolCreated(poolId, token, rewardRate);
+    }
+
+    function stake(bytes32 poolId, uint256 amount) external nonReentrant {
+        Pool storage pool = pools[poolId];
+        require(pool.isActive, "Pool must be active");
+        require(amount > 0, "Amount must be positive");
+
+        UserInfo storage user = userInfo[poolId][msg.sender];
+        if (user.amount > 0) {
+            // Pay all rewards whenever the user is staking more
+            uint256 pending = _calculatePendingRewards(poolId, msg.sender);
+            if (pending > 0) {
+                _safeRewardsTransfer(msg.sender, pending);
+                emit RewardClaimed(poolId, msg.sender, pending);
+            }
+        }
+
+        IERC(pool.token).safeTransferFrom(msg.sender, address(this), amount);
+        
+        user.amount += amount;
+        user.rewardDebt = user.amount * pool.rewardPerTokenStored / 1e18;
+        user.lastClaimTime = block.timestamp;
+
+        pool.totalStaked += amount;
+
+        emit Staked(poolId, msg.sender, amount);
     }
 }
