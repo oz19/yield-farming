@@ -191,4 +191,17 @@ contract YieldFarmingPool is Ownable, ReentrancyGuard {
     function emergencyWithdraw(address token, uint256 amount) external onlyOwner {
         IERC20(token).safeTransfer(owner(), amount);
     }
+
+    function _updatePool(bytes32 poolId) internal {
+        Pool storage pool = pools[poolId];
+        
+        currentTime = block.timestamp;
+        if (pool.totalStaked > 0) {
+            uint256 timeElapsed = currentTime - pool.lastUpdateTime;
+            uint256 reward = timeElapsed * pool.rewardRate;
+            pool.rewardPerTokenStored = rewards * 1e18 / pool.totalStaked;
+        }
+
+        pool.lastUpdateTime = currentTime;
+    }
 }
