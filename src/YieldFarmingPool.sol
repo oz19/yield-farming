@@ -112,4 +112,30 @@ contract YieldFarmingPool is Ownable, ReentrancyGuard {
 
         emit Staked(poolId, msg.sender, amount);
     }
+
+    function unstake(bytes32 poolId, uint256 amount) external nonReentrant {
+        Pool storage pool = pools[poolId];
+        require(pool.isActive, "Pool must be active");
+        require(amount > 0, "Amount must be positive");
+
+        UserInfo storage user = userInfo[poolId][msg.sender];
+        require(user.amount > amount, "Insufficient staked amount");
+
+        _updatePool(poolId);
+
+        uint256 pending = _calculatePendingRewards(poolId, msg.sender);
+        if (pending > 0) {
+            _safeRewardsTransfer(msg.sender, pending);
+            emit RewardClaimed(poolId, msg.sender, pending);
+        }
+
+        user.amount -= amount;
+        user.rewardDebt = user.amount * pool.rewardPerTokenStored / 1e18;
+
+        pool.totalStaked -= amount;
+
+        IERC20(pool.token).safeTransfer(msg.sender, amount);
+
+        emit Withdrawn(poolId, msg.sender, amount);
+    }
 }
