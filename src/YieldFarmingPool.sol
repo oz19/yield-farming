@@ -97,7 +97,7 @@ contract YieldFarmingPool is Ownable, ReentrancyGuard {
             // Pay all rewards whenever the user is staking more
             uint256 pending = _calculatePendingRewards(poolId, msg.sender);
             if (pending > 0) {
-                _safeRewardsTransfer(msg.sender, pending);
+                _safeRewardTransfer(msg.sender, pending);
                 emit RewardClaimed(poolId, msg.sender, pending);
             }
         }
@@ -125,7 +125,7 @@ contract YieldFarmingPool is Ownable, ReentrancyGuard {
 
         uint256 pending = _calculatePendingRewards(poolId, msg.sender);
         if (pending > 0) {
-            _safeRewardsTransfer(msg.sender, pending);
+            _safeRewardTransfer(msg.sender, pending);
             emit RewardClaimed(poolId, msg.sender, pending);
         }
 
@@ -203,5 +203,28 @@ contract YieldFarmingPool is Ownable, ReentrancyGuard {
         }
 
         pool.lastUpdateTime = currentTime;
+    }
+
+    function _safeRewardTransfer(address to, uint256 amount) internal {
+        uint256 rewardBalance = rewardToken.balanceOf(address(this));
+        if (amount > rewardBalance) {
+            amount = rewardBalance;
+        }
+        if (amount > 0) {
+            rewardToken.safeTransfer(to, amount);
+        }
+    }
+
+    function _calculatePendingRewards(bytes32 poolId, address user) internal view returns(uint256) {
+        Pool storage pool = pools[poolId];
+        UserInfo storage userInfoData = userInfo[poolId][user];
+
+        uint256 rewardPerTokenStored = pool.rewardPerTokenStored;
+        if(pool.totalStaked > 0) {
+            uint256 timeElapsed = block.timestamp - pool.lastUpdateTime;
+            uint256 rewards = timeElapsed * pool.rewardRate;
+            rewardPerTokenStored += rewards * 1e18 / pool.totalStaked;
+        }
+        return userInfoData.amount * rewardPerTokenStored / 1e18 - userInfoData.rewardDebt;
     }
 }
