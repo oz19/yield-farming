@@ -153,4 +153,42 @@ contract YieldFarmingPool is Ownable, ReentrancyGuard {
 
         emit RewardClaimed(poolId, msg.sender, pending);
     }
+
+    function updatePoolRewardRate(bytes32 poolId, uint256 newRewardRate) external onlyOwner {
+        Pool storage pool = pools[poolId];
+        require(pool.isActive, "Pool is not active");
+
+        _updatePool(poolId);
+        pool.rewardRate = newRewardRate;
+
+        emit PoolUpdated(poolId, newRewardRate);
+    }
+
+    function getPoolEncdedData(bytes32 poolId) external view returns(bytes memory encodedData) {
+        Pool storage pool = pools[poolId];
+        encodeData = abi.encodePacked(
+            pool.token,
+            pool.tokenStaked,
+            pool.rewardRate,
+            pool.lastUpdateTime,
+            pool.rewardPerTokenStored,
+            pool.isActive
+        );
+    }
+
+    function getUserHash(bytes32 poolId, address user) external pure returns(bytes32 userHash) {
+        userHash = keccak256(abi.encodePacked(poolId, user, "YIELD_FARMING_USER");
+    }
+
+    function getActivePoolsCount() external view returns(uint256) {
+        return activePools.length;
+    }
+
+    function getActivePools() external view returns(bytes32[] memory) {
+        return activePools;
+    }
+
+    function emergencyWithdraw(address token, uint256 amount) external onlyOwner {
+        IERC20(token).safeTransfer(owner(), amount);
+    }
 }
