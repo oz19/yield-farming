@@ -3,66 +3,51 @@ pragma solidity 0.8.34;
 
 import "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
 import "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import "lib/openzeppelin-contracts/contracts/token/ERC20/utils/safeERC20.sol";
+import "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import "lib/openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 
 
-/**
- * @title YieldFarmingPool
- * @author Gurutz Ocon
- * @dev Yield Farming contract to test abi.encodePacked to encode pool
- * parameters and calculate unique identifiers
- */
 contract YieldFarmingPool is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
-    // Structure to store pool information
     struct Pool {
-        address token;           // Pool token
-        uint256 totalStaked;     // Total staked tokens
-        uint256 rewardRate;      // Reward rate per second
-        uint256 lastUpdateTime;  // Last time it was updated
-        uint256 rewardPerTokenStored; // Accumulated reward per token
-        bool isActive;           // Whether the pool is active
+        address token;
+        uint256 totalStaked;
+        uint256 rewardRate;
+        uint256 lastUpdateTime;
+        uint256 rewardPerTokenStored;
+        bool isActive;
     }
 
-    // Structure to store user information
     struct UserInfo {
-        uint256 amount;          // Staked amount
-        uint256 rewardDebt;      // Reward debt
-        uint256 lastClaimTime;   // Last time rewards were claimed
+        uint256 amount;
+        uint256 rewardDebt;
+        uint256 lastClaimTime;
     }
 
-    // Reward token
     IERC20 public immutable rewardToken;
-    
-    // Mapping of pools by their unique identifier
+
     mapping(bytes32 => Pool) public pools;
-    
-    // Mapping of user information by pool and address
     mapping(bytes32 => mapping(address => UserInfo)) public userInfo;
-    
-    // List of all active pools
     bytes32[] public activePools;
-    
-    // Events
+
     event PoolCreated(bytes32 indexed poolId, address indexed token, uint256 rewardRate);
     event Staked(bytes32 indexed poolId, address indexed user, uint256 amount);
     event Withdrawn(bytes32 indexed poolId, address indexed user, uint256 amount);
     event RewardClaimed(bytes32 indexed poolId, address indexed user, uint256 amount);
     event PoolUpdated(bytes32 indexed poolId, uint256 newRewardRate);
 
-    constructor(address _rewardToken) Ownable(msg.sender) {
-        require(_rewardToken != address(0), "Invalid reward token");
-        rewardToken = _rewardToken;
+    constructor(address rewardToken_) Ownable(msg.sender) {
+        require(rewardToken_ != address(0), "Invalid reward token");
+        rewardToken = IERC20(rewardToken_);
     }
 
     function createPool(
         address token,
         uint256 rewardRate
     ) external onlyOwner returns(bytes32 poolId) {
-        require(_rewardToken != address(0), "Invalid reward token");
-        require(_rewardRate > 0, "Reward Rate must be positive");
+        require(token != address(0), "Invalid token");
+        require(rewardRate > 0, "Reward rate must be positive");
 
         poolId = keccak256(abi.encodePacked(
             token,
@@ -94,7 +79,6 @@ contract YieldFarmingPool is Ownable, ReentrancyGuard {
 
         UserInfo storage user = userInfo[poolId][msg.sender];
         if (user.amount > 0) {
-            // Pay all rewards whenever the user is staking more
             uint256 pending = _calculatePendingRewards(poolId, msg.sender);
             if (pending > 0) {
                 _safeRewardTransfer(msg.sender, pending);
@@ -102,8 +86,8 @@ contract YieldFarmingPool is Ownable, ReentrancyGuard {
             }
         }
 
-        IERC(pool.token).safeTransferFrom(msg.sender, address(this), amount);
-        
+        IERC20(pool.token).safeTransferFrom(msg.sender, address(this), amount);
+
         user.amount += amount;
         user.rewardDebt = user.amount * pool.rewardPerTokenStored / 1e18;
         user.lastClaimTime = block.timestamp;
@@ -119,7 +103,7 @@ contract YieldFarmingPool is Ownable, ReentrancyGuard {
         require(amount > 0, "Amount must be positive");
 
         UserInfo storage user = userInfo[poolId][msg.sender];
-        require(user.amount > amount, "Insufficient staked amount");
+        require(user.amount >= amount, "Insufficient staked amount");
 
         _updatePool(poolId);
 
@@ -139,13 +123,13 @@ contract YieldFarmingPool is Ownable, ReentrancyGuard {
         emit Withdrawn(poolId, msg.sender, amount);
     }
 
-    function claimRewards(bytes32 poolId) external nonReentrance {
+    function claimRewards(bytes32 poolId) external nonReentrant {
         _updatePool(poolId);
 
         uint256 pending = _calculatePendingRewards(poolId, msg.sender);
         require(pending > 0, "No rewards to claim");
 
-        UserInfo user = userInfo[poolId][msg.sender];
+        UserInfo storage user = userInfo[poolId][msg.sender];
         user.rewardDebt = user.amount * pools[poolId].rewardPerTokenStored / 1e18;
         user.lastClaimTime = block.timestamp;
 
@@ -164,11 +148,11 @@ contract YieldFarmingPool is Ownable, ReentrancyGuard {
         emit PoolUpdated(poolId, newRewardRate);
     }
 
-    function getPoolEncdedData(bytes32 poolId) external view returns(bytes memory encodedData) {
+    function getPoolEncodedData(bytes32 poolId) external view returns(bytes memory encodedData) {
         Pool storage pool = pools[poolId];
-        encodeData = abi.encodePacked(
+        encodedData = abi.encodePacked(
             pool.token,
-            pool.tokenStaked,
+            pool.totalStaked,
             pool.rewardRate,
             pool.lastUpdateTime,
             pool.rewardPerTokenStored,
@@ -177,7 +161,7 @@ contract YieldFarmingPool is Ownable, ReentrancyGuard {
     }
 
     function getUserHash(bytes32 poolId, address user) external pure returns(bytes32 userHash) {
-        userHash = keccak256(abi.encodePacked(poolId, user, "YIELD_FARMING_USER");
+        userHash = keccak256(abi.encodePacked(poolId, user, "YIELD_FARMING_USER"));
     }
 
     function getActivePoolsCount() external view returns(uint256) {
@@ -194,14 +178,12 @@ contract YieldFarmingPool is Ownable, ReentrancyGuard {
 
     function _updatePool(bytes32 poolId) internal {
         Pool storage pool = pools[poolId];
-        
-        currentTime = block.timestamp;
+        uint256 currentTime = block.timestamp;
         if (pool.totalStaked > 0) {
             uint256 timeElapsed = currentTime - pool.lastUpdateTime;
             uint256 reward = timeElapsed * pool.rewardRate;
-            pool.rewardPerTokenStored = rewards * 1e18 / pool.totalStaked;
+            pool.rewardPerTokenStored += reward * 1e18 / pool.totalStaked;
         }
-
         pool.lastUpdateTime = currentTime;
     }
 
@@ -220,11 +202,12 @@ contract YieldFarmingPool is Ownable, ReentrancyGuard {
         UserInfo storage userInfoData = userInfo[poolId][user];
 
         uint256 rewardPerTokenStored = pool.rewardPerTokenStored;
-        if(pool.totalStaked > 0) {
+        if (pool.totalStaked > 0) {
             uint256 timeElapsed = block.timestamp - pool.lastUpdateTime;
             uint256 rewards = timeElapsed * pool.rewardRate;
             rewardPerTokenStored += rewards * 1e18 / pool.totalStaked;
         }
         return userInfoData.amount * rewardPerTokenStored / 1e18 - userInfoData.rewardDebt;
     }
+
 }
