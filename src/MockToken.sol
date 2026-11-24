@@ -16,7 +16,7 @@ contract MockToken is ERC20, Ownable {
         string memory symbol_,
         uint256 initialSupplyWithoutDecimals_
     ) ERC20(name_, symbol_) Ownable(msg.sender) {
-        _mint(msg.sender, initialSupplyWithoutDecimals_ * 10**decimals())
+        _mint(msg.sender, initialSupplyWithoutDecimals_ * 10**decimals());
     }
 
     function mint(address to_, uint256 amount_) external onlyOwner {
